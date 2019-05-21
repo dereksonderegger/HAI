@@ -1,0 +1,98 @@
+---
+title: "Exploratory Investigation"
+author: "Derek Sonderegger"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=9)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(HAI)
+```
+
+
+When a patient is treated at a hospital or health care provider, they are often exposed to a host of pathagens that are not reason for the initial diagnosis. Health care patients with weakend immune systems are more suseptable to pathogens and, due to treatment for the primary disease in heath care centers, can be exposed to a wide range pathagens that require intensive medical treatment. Hospital aquired infections (HAI) are infections that occur at the treatment center after a patient has been admitted for another issue.
+
+In this simulation we consider HAIs of *Clostridium difficile* at a hospital. If every patient with *C. diff* were to have a genetic analysis was done on their strain, we could track the when patient got the disease from previous case at the hospital and create clusters of patients all with the same strain of *C. diff*. In the case of clusters with one patient, no HAI has occured. However for clusters with two or more patients, there are $n_i -1$ HAIs where $n_i$ is the number of individuals in cluster $i$. Clusters with large numbers of patients (say, $>7$) represent significant outbreaks of the disease.
+
+From this observation, the cluster size of *C. diff* strains is of critical concern in any modeling effort. The simplest model we might consider is for cluster sizes to be models as independent Poisson random variables with mean $\lambda$. However looking at the Oxfordshire example, the clusters seem to predomenantly follow a Poisson distribution, but include several large outbreaks.  To address the large outbreaks we will also include a mixture of integer rounded log Normal random variables and vary the mixing parameter between 0% (all Poisson) and 20%.
+
+
+## Distribution of Cluster Sizes
+```{r, echo=FALSE, fig.height=6}
+set.seed(9745)
+n <- 1000 # Number of patients
+lambda_range = seq(.5, 2, by=.5)
+mixing_range = seq(0, .20, by = .05)
+
+out <- NULL
+for( mixing_frac in mixing_range ){
+  for( lambda in lambda_range ){
+    Full.Data <- generate_population(n, lambda, mixing_frac) %>%
+      mutate(mixing_frac = mixing_frac, lambda = lambda ) %>%
+      group_by(clusterID) %>% mutate(cluster_size = n())
+    out <- rbind( out, Full.Data )
+  }
+}
+
+ggplot(out, aes(x=cluster_size)) +
+  geom_bar() +
+  facet_grid(mixing_frac ~ lambda) +
+  labs(x='Cluster Size', y='Number of Individuals')
+```
+
+
+
+
+```{r, echo=FALSE}
+
+```
+
+
+## Poisson with unknown rate, sampling at 10%
+```{r, echo=FALSE}
+```
+
+
+## Poisson with a variety of sampling rates and mixing with logistic
+```{r, echo=FALSE}
+ggplot(Poisson_Simulation, aes(x=Obs.HAI.rate, y=True.HAI.rate)) + 
+  geom_point(alpha=.1) +
+  facet_grid(mixing_frac ~ sample_frac, scales='free' ) +
+  labs(x='Observed HAI rate', y='True HAI rate') + 
+  ggtitle( 'Mixed Poisson and Logistic: Observed HAI rate vs Truth',  
+          subtitle = 'by sampling fraction (.10 to 1.00) and mixing fraction (0.0 to 0.20)') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_line( data = Poisson_Simulation_CIs, aes(y=lwr), color='red' ) +
+  geom_line( data = Poisson_Simulation_CIs, aes(y=upr), color='red' )
+```
+
+
+## What if we don't know the distribution?
+```{r, echo=FALSE, fig.height=3, fig.width=8}
+CIs.small <- Poisson %>%
+  group_by(sample_frac) %>%
+  mutate( Obs.HAI.rate.group = as.character( cut(Obs.HAI.rate, breaks = 10) ) ) %>%
+  group_by(sample_frac, Obs.HAI.rate.group) %>%
+  summarize( Obs.HAI.rate = mean(Obs.HAI.rate),
+             lwr = quantile(True.HAI.rate, 0.025),
+             upr = quantile(True.HAI.rate, 0.975) )
+
+ggplot(Poisson, aes(x=Obs.HAI.rate, y=True.HAI.rate)) + 
+  geom_point(alpha=.1) +
+  facet_grid(. ~ sample_frac, scales='free' ) +
+  labs(x='Observed HAI rate', y='True HAI rate') + 
+  ggtitle( 'Mixed Poisson and Logistic: Observed HAI rate vs Truth',  
+          subtitle = 'by sampling fraction (.10 to 1.00) and mixing fraction (0.0 to 0.20)') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_line( data = CIs.small, aes(y=lwr), color='red' ) +
+  geom_line( data = CIs.small, aes(y=upr), color='red' )
+```
+
+
+

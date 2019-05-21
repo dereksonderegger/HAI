@@ -1,0 +1,435 @@
+---
+title: "Assessing incomplete sampling of disease transmission networks"
+author: "Derek Sonderegger, PhD - Northern Arizona University"
+date: "April 9, 2019"
+output:
+  ioslides_presentation: default
+  beamer_presentation: default
+subtitle: Meeting with Paul
+---
+  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(HAI)
+library(ggplot2)
+library(tidyverse)
+
+# ioslides ouptput
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+                      fig.height=5, fig.width=8, fig.align='center')
+
+# beamer output
+# knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+#                       fig.height=3, fig.width=4, fig.align='center')
+
+```
+
+
+## Colaborators
+  - Work that I have done with the Pathogen and Microbiome Institute at NAU and we are just a couple months into the project.
+<div class="columns-2">
+```{r, out.width='200px'}
+knitr::include_graphics("Images/PMI_Logo.png")
+```
+  
+  - Dr Paul Keim
+  - Dr Jason Sahl
+</div>
+
+# Background Information
+
+## Two worrisome Healthcare Aquired Infections (HAIs)
+  - MRSA
+    - Methicillin-resistant Staphylococcus aureus
+    - Resistant to many common antibiotics
+  - *C. Diff*
+    - *Clostridioides difficile*
+    - Our disease of interest
+
+## *Clostridioides difficile*
+ - A spore-forming bacteria
+    - Spores can survive for months in the environment
+    - Bacteria die when exposed to oxygen.
+    - Very difficult to work with in the lab.
+  - *C. diff* is widely distributed
+    - Spores are widely found in the environment
+    - People and animals can be asymptomatic carriers
+  - Resistant to many commonly used antibiotics
+    
+## Human Infection 
+  - Causes diarrhea, fever, nausea, and abdominal pain
+  - Spread through fecal contamination 
+  - Additional $4.8 billion each year in health care costs
+    -  290,000 Americans sickened by the bacteria in a hospital or other health care facility each year.
+    -  27,000 people in the U.S. die while infected with *C. diff* annually.
+    
+## Common infection cycle
+  - In a healthy gut biome, *C. diff* can't strongly establish due to bacterial competition.
+  - In patients under a common antibiotic treatment, *C. diff* can flourish.
+  - Prescribed antibiotics for some other reason (e.g. pneumonia)
+    - *C. diff* might already be present in the patient.
+    - Come into contact with *C. diff* via live bacteria or spores from another patient.
+
+## Medicare Implications
+  - Won't reimburse costs for treating infections acquired at a healthcare facility
+  - If the rate of Healthcare Acquired Infections (HAIs) is too high, Medicare will deduct
+    one percent from their OVERALL reimbursements to the facility.
+  - Medicare defines any diagnosis of *C. diff* that occurs 3 days after admission as "healthcare acquired".
+  
+## Goal: Estimate HAI rate 
+  - Individual patients have the genome of their strain of *C. diff* sequenced. 
+  - Group strains into clusters if they differ by at most 2 SNPs.
+    - Use Single-Linkage clustering method: represents evolution along a chain of infections
+    - Within patient variability suggests that maybe this needs to be evaluated.
+
+
+# Data!
+  
+## Oxfordshire Data
+  - Eyre *et al* 2013 describes a study which genotyped nearly all cases of *C. diff* in over three years in Oxfordshire, UK.
+  - Of the 1250 cases that were evaluated, $N=1223$ were successfully genotyped.
+  
+## Oxfordshire Time/Clusters
+```{r, out.width='150px', out.height='200px', echo=FALSE}
+knitr::include_graphics("Images/Oxfordshire_TimeClusters.jpg")
+```
+
+## Oxfordshire Cluster Size Distribution
+```{r}
+Oxford %>% filter(SNP_Threshold == 2) %>%
+  ggplot(., aes(x=Cluster_Size) ) +
+  geom_histogram(binwidth=1) +
+  labs( x = 'Cluster Size', y='Number of Patients')
+```
+
+
+## Defining HAI rate from full data
+  - For each cluster, the first time a strain is observed it is considered environmentally acquired.
+  - The second (or third, or fourth, ..) time a strain is observed, it is healthcare acquired.
+
+$$HAI = \frac{N - ||\mathcal{I}||}{N} = 1 - \frac{||\mathcal{I}||}{N}$$
+$$ N = \textrm{ Number of Patients }$$
+$$\mathcal{I} = \textrm{ Set of strain identifiers }$$
+$$||\mathcal{I}|| = \textrm{ Actual Number of Clusters/Strains }$$
+
+  - Knowing $||\mathcal{I}||$ is the key to calculating HAI rate!
+
+## Observed Number of Clusters/Strains under Simple Random Sampling
+$$ \widehat{HAI}_{naive} = 1 - \frac{||I||}{n} $$
+$$ n = \textrm{ sample size } $$
+$$ I = \textrm{ Set of observed strains }$$
+$$ ||I|| = \textrm{ Observed Number of Clusters/Strains } $$
+
+## Does the Naive Estimator Work?
+```{r, Oxford_Sim1, eval=FALSE}
+Oxford_Simulation <- NULL
+for(sample_frac in c(0.2, 0.4, 0.6, 0.8, 1.0)){
+  for(i in 1:5){
+    Obs_Clusters <- Oxford %>% filter(SNP_Threshold == 2) %>%
+      sample_frac( sample_frac ) %>%
+      pull(Cluster_ID)  
+
+    for( method in c('naive', 'hypergeometric') ){    
+    # for( method in c('naive') ){
+      temp <- calc_HAI(Obs_Clusters, method=method, 
+                       alpha=sample_frac, N=nrow(Oxford), 
+                       bias=FALSE, CI=FALSE)
+      Oxford_Simulation <- rbind(Oxford_Simulation,
+        data.frame(sample_frac = sample_frac, rep = i,  method = method,
+                   Est = temp[1], lwr=temp[2], upr=temp[3]))
+    }
+  }
+}
+usethis::use_data(Oxford_Simulation, overwrite=TRUE)
+```
+```{r}
+Oxford_Simulation %>% 
+  filter(method == 'naive') %>%
+  ggplot(., aes(x=sample_frac, y=Est)) + 
+  geom_point() +
+  geom_hline(yintercept = 0.245, color='red') +
+  scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate')
+```
+
+
+## Why doesn't this work?
+```{r, Calc_Oxford_Cluster_Sizes, eval=FALSE}
+Observed_Oxford_Cluster_Sizes <- NULL
+for( sample_frac in c(0.1, 0.2, 0.4, 0.6, 0.8, 1.0) ){
+  for( i in 1:1 ){
+    Observed_Oxford_Cluster_Sizes <- 
+      Oxford %>% filter( SNP_Threshold == 2 ) %>%
+      sample_frac(sample_frac) %>% 
+      group_by(Cluster_ID) %>% 
+      mutate(Cluster_Size = n(), rep=i, sample_frac=sample_frac) %>%
+      rbind( Observed_Oxford_Cluster_Sizes )
+  }
+}
+usethis::use_data(Observed_Oxford_Cluster_Sizes, overwrite=TRUE)
+```
+```{r}
+Observed_Oxford_Cluster_Sizes %>%
+  ggplot(., aes(x=Cluster_Size, y=..density..)) +
+  geom_histogram(binwidth=1) +
+  facet_wrap(  ~ sample_frac ) +
+  labs(y='Proportion of Patients')
+```
+
+# Better Estimators?
+
+## HyperGeometric?
+  - Let 
+    - $n_i$ be the number of patients with strain $i$.  (This is unknown!)
+    - $m_i$ be the observed number of patients with strain $i$.
+    - $\alpha$ be the sampling percentage.
+
+$$n_i \stackrel{iid}{\sim} \textrm{ZTPoisson}(\lambda) \; \textrm{for} \; i\in \mathcal{I}$$ 
+
+$$m_i | n_i \sim \textrm{ZTHyperGeometric}(n_i, \; N-n_i, \;\alpha N) \; \textrm{for}\; i \in I$$
+
+$$ E(m_i | n_i) = \left(1-f(0|n_i)\right)^{-1} \;\alpha \;n_i$$
+
+where $I$ is a subset of $\mathcal{I}$ and the ZT represents the zero truncated distributions.
+
+## HyperGeometric?
+
+$$f(0|n_i) =  \frac{ {n_i \choose 0}{N-n_i \choose \alpha N} }{ {N \choose \alpha N}}$$
+
+$$E[m_i] = E[ E(m_i|n_i)] = E[ (1-f(0|n_i))^{-1} \;\alpha \;n_i]$$
+
+
+## Can we just ignore the expectation?
+One estimator is to ignore the expectation and solve the following equation for $\widehat{n}_i$.
+$$ m_i =  (1-f(0|\widehat{n}_i))^{-1} \;\alpha \; \widehat{n}_i$$
+which needs to be solved via numerical methods because the "chooses" in $f(0|\widehat{n}_i)$.
+
+$$ \widehat{HAI}_{hyper} = 1 - \frac{||I||}{\widehat{n}} $$
+$$ \widehat{n} = \sum \widehat{n}_i $$
+$$ I = \textrm{ Set of observed strains }$$
+$$ ||I|| = \textrm{ Observed Number of Clusters/Strains } $$
+
+## Hypergeometric result
+```{r}
+Oxford_Simulation %>% 
+  ggplot(., aes(x=sample_frac, y=Est)) + 
+  geom_point() +
+  geom_hline(yintercept = 0.245, color='red') +
+  scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate') +
+  facet_grid(. ~ method)
+```
+
+
+## Bias Correction
+Both the Naive and Hypergeometric algorithms are biased estimators where the naive estimator underestimates the true HAI rate and experiences showed that the hypergeometric overestimated.  To correct for this, we do a bias correction step where:
+
+1. Calculate the sample HAI rate.
+2. Repeatedly subsample the sample at the designated $\alpha$ fraction.
+3. For each subsample, calculate the subsample's sample HAI rate
+4. Look at the average discrepancy and use that to adjust the sample HAI rate estimate.
+5. The adjustments are made on the logit scale to force the resulting rate to remain in the 
+       $[0,1]$ interval.
+       
+
+## Estimators On Clinical Data
+```{r, Oxford_Sim2, eval=FALSE}
+Clinical_Simulation2 <- NULL
+for( data_set in c('Oxford','Flagstaff') ){
+  for(sample_frac in c(0.2, 0.4, 0.6, 0.8, 1.0)){
+    for(i in 1:10){
+      Obs_Clusters <- get(data_set) %>% filter(SNP_Threshold == 2) %>% ungroup() %>%
+        sample_frac( sample_frac ) %>%
+        pull(Cluster_ID)  
+  
+      for( method in c('naive', 'plugin', 'hypergeometric') ){    
+      # for( method in c('naive') ){
+        temp <- calc_HAI(Obs_Clusters, method=method, 
+                         alpha=sample_frac, N=nrow(get(data_set)), 
+                         bias=TRUE, CI=FALSE)
+        Clinical_Simulation2 <- rbind(Clinical_Simulation2,
+          tibble(data_set=data_set, sample_frac = sample_frac, rep = i,  method = method,
+                     Obs_HAI_rate = temp[1], lwr=temp[2], upr=temp[3], lw2=temp[4], upr2=temp[5]))
+      }
+    }
+  }
+}
+Truth <- rbind( 
+  Oxford    %>% group_by(SNP_Threshold) %>% select(SNP_Threshold, True_HAI_rate) %>% slice(1) %>% mutate(data_set='Oxford'),
+  Flagstaff %>% group_by(SNP_Threshold) %>% select(SNP_Threshold, True_HAI_rate) %>% slice(1) %>% mutate(data_set='Flagstaff') ) %>%
+  filter(SNP_Threshold == 2)       
+Clinical_Simulation2 <- Clinical_Simulation2 %>% left_join(Truth, by='data_set')
+usethis::use_data(Clinical_Simulation2, overwrite=TRUE)
+```
+```{r, 'Graph_of_Clinical_Response'}
+Clinical_Simulation2 %>% 
+  filter(method %in% c('naive','hypergeometric') ) %>%
+  ggplot(., aes(x=sample_frac, y=Obs_HAI_rate)) + 
+  geom_point() +
+  geom_hline(aes(yintercept = True_HAI_rate), color='red') +
+  # scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate') +
+  # geom_errorbar(aes(ymin=lwr, ymax=upr)) +
+  facet_grid(data_set ~ method) +
+  theme(legend.position = 'none')
+```
+
+
+## Simulated Populations
+The Oxfordshire data could be reasonably modeled using a mixture of two distributions to separate the small clusters sizes from the large. We chose to model the small clusters sizes using a truncated Poisson distribution with the zero truncated out. The large cluster sizes were modeled from a logNormal distribution. 
+
+$$n_i \sim \begin{cases}
+ \textrm{TPoisson}(\lambda)       & \textrm{ with probability } 1 - \alpha \\
+ \textrm{logNormal}(\mu, \sigma)  &\textrm{ with probability } \alpha 
+\end{cases}$$
+
+for $i$ in $\mathcal{I}$.  
+
+
+
+
+## Simulated Populations
+```{r, Example_Simulated_Data}
+seed <- runif(1, 0, 1000000) %>% round();
+set.seed(268769); #set.seed(seed)
+n <- 1000 # Number of patients
+lambda_range = seq(.5, 2, by=.5)
+mixing_range = seq(0, .006, by = .002)
+
+out <- NULL
+for( mixing_frac in mixing_range ){
+  for( lambda in lambda_range ){
+    Full.Data <- generate_population(n, lambda, mixing_frac) %>%
+      mutate(mixing_frac = mixing_frac, lambda = lambda ) %>%
+      group_by(clusterID) %>% mutate(cluster_size = n())
+    out <- rbind( out, Full.Data )
+  }
+}
+
+P2 <- ggplot(out, aes(x=cluster_size)) +
+  geom_bar() +
+  facet_grid(mixing_frac ~ lambda) +
+  labs(x='Cluster Size', y='Number of Individuals') +
+  ggtitle('Simulated Populations')
+P2
+```
+
+
+## Simulated Data: Naive method
+```{r, eval=FALSE}
+results <- NULL
+mixing_range = seq(0, .006, by = .002)
+
+for( i in 1:10 ){
+  # for( lambda in c(0.05, 0.1, 0.2, 0.5, 1.0, 1.5, 2.0) ){
+  for( lambda in c(0.05, 0.1) ){
+    # for( mix_frac in mixing_range ){
+    for( mix_frac in c(0) ){
+      pop <- generate_population(1000, lambda = lambda, mix.frac = mix_frac)
+      HAI <- pop %>% pull(clusterID) %>% calc_HAI( method='naive', bias=FALSE, CI=FALSE )
+      # for( sample_frac in c(.2, .3, .4, .5) ){
+      for( sample_frac in c(.4) ){
+        sample <- pop %>% sample_frac(sample_frac) %>% pull(clusterID)
+        for( method in c('naive','hypergeometric','binomial1','binomial2') ){
+        # for( method in c('naive') ){
+          time <- system.time( 
+            {temp = calc_HAI(clusterID=sample, method=method, alpha=sample_frac, 
+                            N=nrow(pop), bias=TRUE, CI=TRUE, CI_reps=100)}
+          )
+          results <- rbind( results,
+                        data.frame( sample_frac=sample_frac, HAI=HAI[1], rep=i, 
+                                    method=method, lambda = lambda, mix_frac=mix_frac, time=time[1],
+                                    Est = temp[1], lwr=temp[2], upr=temp[3], 
+                                    lwr2=temp[4], upr2=temp[5]) 
+                        )
+          print(paste('Rep=',i,', Lambda=',lambda,', Mix_frac=', mix_frac, 
+                      ' Alpha=',sample_frac, ' Method=',method, ' Time=',time[1], sep=''))
+        }
+      }
+    }
+  }
+}
+
+Generated_Population_Simulation2 <- results
+# usethis::use_data(Generated_Population_Simulation2, overwrite=TRUE)
+```
+
+```{r, 'Graph_of_Generated_Populations1a'}
+Generated_Population_Simulation2 %>%
+  # filter(method %in% c('naive') ) %>%
+  ggplot(., aes(x=HAI, y=Est)) +
+  geom_point() + geom_abline(color='red') +
+  # facet_grid(mix_frac ~ sample_frac) +
+  facet_grid(. ~ method) +
+  labs( x='HAI Rate', y='Estimated HAI Rate' )
+```
+
+```{r, 'Graph_of_Generated_Populations1a'}
+Generated_Population_Simulation2 %>%
+  filter(method %in% c('hypergeometric') ) %>%
+  ggplot(., aes(x=HAI, y=Est)) +
+  geom_point() + geom_abline(color='red') +
+  facet_grid(mix_frac ~ sample_frac) +
+  labs( x='HAI Rate', y='Estimated HAI Rate' )
+```
+
+## Confidence intervals
+* Next we want to develope confidence intervals for our estimator.
+* Method 1
+    * Use the bias correction subsample HAI rates to estimate a Standard Error (SE)
+    * $Est  \pm 2 \, SE$
+* Method 2
+    * Do a bootstrap procedure by resampling from the observed cluster sizes.
+    
+
+## Simulated Data: Naive
+```{r, 'Graph_of_Generated_Populations2a'}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('naive') ) %>%
+  ggplot(., aes(x=HAI, y=Est, color=lambda)) + 
+  geom_point() + geom_abline(color='red') +
+  geom_errorbar(aes(ymin=lwr2, ymax=upr2)) +
+  facet_grid(mix_frac ~ sample_frac) +
+  ggtitle('Bias Corrected Naive', subtitle = 'CI type: Bias Correction')
+```
+
+## Simulated Data: Naive
+```{r, 'Graph_of_Generated_Populations2b'}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('naive') ) %>%
+  ggplot(., aes(x=HAI, y=Est, color=lambda)) + 
+  geom_point() + geom_abline(color='red') +
+  geom_errorbar(aes(ymin=lwr2, ymax=upr2)) +
+  facet_grid(mix_frac ~ sample_frac) +
+  ggtitle('Bias Corrected Naive', subtitle = 'CI type: Bootstrap')
+```
+
+## Coverage Rates
+```{r}
+temp <- Generated_Population_Simulation2 %>%
+  mutate( InInterval1  = ifelse(lwr  < HAI & HAI < upr, TRUE, FALSE) ) %>%
+  mutate( InInterval2  = ifelse(lwr2 < HAI & HAI < upr2,TRUE, FALSE) ) %>%
+  mutate( length1 = upr-lwr, length2 = upr2-lwr2 ) %>%
+  mutate( HAI_Type = ifelse( HAI < .1, 'Small', 'Large' ) ) %>%
+  group_by( method )
+
+rbind( 
+  temp %>% mutate( Type = 'Bias' ) %>% group_by(method, Type, HAI_Type) %>%
+  summarise( `Coverage`  = mean(InInterval1,  na.rm=TRUE),
+             `Length` = mean(length1, na.rm=TRUE) ),
+  temp %>% mutate( Type = 'Bootstrap' ) %>% group_by(method, Type, HAI_Type) %>%
+  summarise(`Coverage` = mean(InInterval2, na.rm=TRUE),
+            `Length` = mean(length2, na.rm=TRUE) ) ) %>%
+pander::pander()
+```
+
+
+## Coverage Rates by Sample Fraction
+```{r}
+rbind( 
+  temp %>% mutate( Type = 'Bootstrap' ) %>% group_by(Type, HAI_Type, sample_frac) %>%
+  summarise(`Coverage` = mean(InInterval2, na.rm=TRUE),
+            `Length` = mean(length2, na.rm=TRUE) ) ) %>%
+pander::pander()
+```
+

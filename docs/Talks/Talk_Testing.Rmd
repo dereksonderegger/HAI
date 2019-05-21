@@ -1,0 +1,47 @@
+---
+title: "Assessing incomplete sampling of disease transmission networks"
+author: "Derek Sonderegger, PhD - Northern Arizona University"
+date: "May 8, 2019"
+output:
+  beamer_presentation: default
+  slidy_presentation: default
+  ioslides_presentation: default
+subtitle: PMI Monthly Meeting
+---
+  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(HAI)
+library(ggplot2)
+library(tidyverse)
+
+# ioslides ouptput
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+                      fig.height=5, fig.width=8, fig.align='center')
+
+# beamer output
+# knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+#                       fig.height=3, fig.width=4, fig.align='center')
+
+```
+
+
+## Collaboration with NAU's Pathogen and Microbiome Institute 
+```{r, out.width='600px'}
+knitr::include_graphics("Images/ARD&PMI.png")
+```
+
+
+
+## Cluster Size Distributions
+```{r, 'fig1', warning=FALSE}
+rbind(
+  Oxford %>% mutate(Location = 'Oxford') %>% ungroup(),
+  Flagstaff %>% mutate(Location = 'Flagstaff') %>% ungroup()) %>%
+  mutate( SNP_Threshold = factor(SNP_Threshold, labels = paste( '<=', c(2,4,10) )) ) %>%
+  ggplot(., aes(x=Cluster_Size) ) + 
+  geom_bar() + 
+  labs(x='Cluster Size', y='Number of Individuals') +
+  facet_grid( SNP_Threshold ~ Location, scales = 'free_x' ) +
+  ggtitle('Cluster Sizes')
+```

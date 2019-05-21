@@ -1,0 +1,217 @@
+---
+title: "Exploring Estimators"
+author: "Derek Sonderegger"
+date: "11/19/2018"
+output: word_document
+---
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(HAI)
+```
+
+We have observed clusters of _C. diff._ patients.  For each cluster, we let $c_i$ represent 
+the number of patients in the cluster that have HAI.  For this simulation, we assume that 
+this number is the number of patients in the cluster $n_i$ minus 1.  So we assume
+$c_i = n_i -1$. Notice that $c_i$ can take on values of $0, 1, 2, \dots$.
+
+To create a population to sample from, we will model $c_i$ being random variables from 
+a Poisson($\lambda$) distribution, and thus $n_i$ are random variables from a shifted Poisson
+distribution with a shift of $+1$.
+
+```{r, echo=FALSE}
+#' Create a population of HAI cases
+#' @param n - Total number of patients that we could have sampled
+#' @param lambda - Poisson paramter
+#' @return A data frame of approximately n patients, each with a ClusterID
+#'         and if their infection was Community or Hospital aquired
+generate_population <- function(n, lambda, mixed=FALSE, mix.proportion=0.01){
+  cluster_sizes <- NULL; j = 1
+  while( sum(cluster_sizes) < n ){
+    j <- j+1
+    if( mixed & (runif(1) < mix.proportion) ){
+      cluster_sizes <- c(cluster_sizes, rlnorm(1, mean=3.5, sdlog=.25))
+    }else{
+      cluster_sizes <- c(cluster_sizes, rpois(2^j, lambda))
+    }
+  }
+
+  data.frame( clusterSize = cluster_sizes ) %>%
+    filter(clusterSize > 0) %>%                     # remove the zero sized clusters of patients
+    mutate(TotalPatients = cumsum(clusterSize)) %>% #
+    filter(TotalPatients <= n)   %>%                # Only use the first n patients we generated
+    select( -TotalPatients ) %>%
+    mutate( clusterID = 1:n() ) %>%
+    group_by( clusterID ) %>%
+    do({ expand.grid( Rep = 1:.$clusterSize[1]) }) %>% 
+      mutate(Aquired = ifelse( Rep == 1, 'Community', 'Hospital')) %>%  # First case in the cluster is 
+    select(-Rep) %>% group_by() %>%                                   # assumed to be community aquired
+    mutate( patientID = 1:n() ) 
+}
+
+```
+
+```{r}
+Full.Data <- generate_population(n=1000, lambda=2)  # 
+Full.Data %>%
+  count(Aquired) %>%
+  mutate(proportion = n/sum(n))
+
+Full.Data %>%
+  count(clusterID) %>% rename(clusterSize = n) %>%  # How many patients in each cluster
+  count(clusterSize) %>% rename(numClusters = n) %>% # How many clusters in each cluster size
+  mutate(numCommunity = numClusters ,
+         numHAI = numClusters * (clusterSize-1),
+         numPatients = numCommunity + numHAI )
+```
+
+
+```{r}
+# Create the Sampled Data sets
+frac_sampled <- 1.0
+Sample.Data <- Full.Data %>%
+  sample_frac(frac_sampled, replace = FALSE) 
+```
+
+
+```{r, eval=FALSE}
+# If the population acutally is actually Poisson distributed
+# then we really need 30% sampling or more to actually get any accuracy
+n <- 1000
+N <- 50
+sample_frac = .4
+lambda_range=seq(.5,8, by=.1)
+
+out <- NULL
+for( sample_frac in c(.1, .2, .3, .4, .6, .8, 1) ){
+  for( lambda in lambda_range ){
+    for( i in 1:N ){
+      Full.Data <- generate_population(n, lambda)
+      Sample.Data <- Full.Data %>% sample_frac(sample_frac, replace = FALSE) 
+      True.HAI <- Full.Data %>% filter(Aquired == 'Hospital') %>% nrow(.)/nrow(Full.Data)
+      Obs.HAI <- 
+        Sample.Data %>% 
+        group_by(clusterID) %>% count() %>% 
+        mutate(n = n-1) %>% ungroup() %>% 
+        summarise(HAI = sum(n)) %>% pull(HAI)
+      proportion <- Obs.HAI / nrow(Full.Data)
+      out <- rbind(out, data.frame(lambda=lambda, n=n, sample_frac=sample_frac, Obs.HAI.rate=proportion, True.HAI.rate = True.HAI))
+    }  
+  }
+}
+Poisson <- out
+usethis::use_data(Poisson)
+```
+
+```{r}
+ggplot(Poisson, aes(x=Obs.HAI.rate, y=True.HAI.rate)) + 
+  geom_point(alpha=.5) +
+  facet_grid(. ~ sample_frac, scales='free' ) +
+  labs(x='Observed HAI rate', y='True HAI rate') + 
+  ggtitle('Poisson: Observed HAI rate vs Truth, by sampling fraction')
+```
+
+
+```{r, eval=FALSE}
+# If the population acutally is Poisson distributed mixed with logNormal
+n <- 1000
+N <- 50
+sample_frac = .4
+lambda <- 2
+lambda_range=seq(.5,8, by=.1)
+
+out <- NULL
+for( sample_frac in c(.1, .2, .3, .4, .6, .8, 1) ){
+  for( lambda in lambda_range ){
+    for( i in 1:N ){
+      Full.Data <- generate_population(n, lambda, mixed=TRUE, mix.proportion = .01)
+      Sample.Data <- Full.Data %>% sample_frac(sample_frac, replace = FALSE) 
+      True.HAI <- Full.Data %>% filter(Aquired == 'Hospital') %>% nrow(.)/nrow(Full.Data)
+      Obs.HAI <- 
+        Sample.Data %>% 
+        group_by(clusterID) %>% count() %>% 
+        mutate(n = n-1) %>% ungroup() %>% 
+        summarise(HAI = sum(n)) %>% pull(HAI)
+      proportion <- Obs.HAI / nrow(Full.Data)
+      out <- rbind(out, data.frame(lambda=lambda, n=n, sample_frac=sample_frac, Obs.HAI.rate=proportion, True.HAI.rate = True.HAI))
+    }  
+  }
+}
+Mixed <- out
+usethis::use_data(Mixed)
+```
+
+```{r}
+ggplot(Mixed, aes(x=Obs.HAI.rate, y=True.HAI.rate)) + 
+  geom_point(alpha=.5) +
+  facet_grid(. ~ sample_frac, scales='free' ) +
+  labs(x='Observed HAI rate', y='True HAI rate') + 
+  ggtitle('Mixed: Observed HAI rate vs Truth, by sampling fraction')
+```
+
+
+
+```{r}
+# # Can we use the Conway-Maxwell Poisson distribution?
+# df <- Sample.Data %>%
+#   group_by(clusterID) %>% count() %>% rename(clusterSize = n) 
+# library(glmmTMB)
+# model <- glmmTMB(clusterSize ~ 1, data=df, family=truncated_compois)
+# confint(model)[1,] %>% exp()
+# # This fails as the sampling fraction gets small < 0.4. So unless I
+# # can figure out how to specify the weighting fraction.  Basically
+# # we must use that we know the sampling fraction.
+```
+
+
+
+```{r}
+# Full.Data <- generate_population(n=1000, lambda=2)  # 
+# Full.Data %>%
+#   count(Aquired) %>%
+#   mutate(proportion = n/sum(n))
+# 
+# Full.Data %>%
+#   count(clusterID) %>% rename(clusterSize = n) %>%  # How many patients in each cluster
+#   count(clusterSize) %>% rename(numClusters = n) %>% # How many clusters in each cluster size
+#   mutate(numCommunity = numClusters ,
+#          numHAI = numClusters * (clusterSize-1),
+#          numPatients = numCommunity + numHAI )
+```
+
+```{r}
+# I created a Poisson distribution that truncates and, via weighting,
+# we also account for the sampling schemes.
+
+# Create the Sampled Data sets
+# Full.Data <- generate_population(n=2000, lambda=2)  # 
+# frac_sampled <- .2
+# Sample.Data <- Full.Data %>%
+#   sample_frac(frac_sampled, replace = FALSE) %>%
+#   arrange(clusterID)
+# df <- Sample.Data %>%
+#   group_by(clusterID) %>% count() %>% rename(clusterSize = n) %>%
+#   mutate(HAI = clusterSize - 1)
+# 
+# temp <- Vectorize(function(lambda){
+#   out <- dtruncated_weighted_poisson(
+#             x=df$clusterSize, lambda=lambda,
+#             N = nrow(Full.Data), n=nrow(Sample.Data), log=TRUE )
+#   # out <- dweighted_poisson(
+#   #           x=df$HAI, lambda=lambda,
+#   #           N = nrow(Full.Data), n=nrow(Sample.Data), log=TRUE )
+#   
+#   out <- sum(out)        
+#   return(out)
+# })
+# 
+# data.frame( lambda = seq(0.1, 4, by=.1) ) %>%
+#   mutate( loglikelihood = temp(lambda) ) %>%
+#   ggplot( aes(x=lambda, y=loglikelihood) ) +
+#   geom_line() + geom_point()
+# 
+# optimize(temp, c(0,4), maximum = TRUE )
+ 
+```
+

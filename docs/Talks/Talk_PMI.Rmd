@@ -1,0 +1,298 @@
+---
+title: "Assessing incomplete sampling of disease transmission networks"
+author: "Derek Sonderegger, PhD - Northern Arizona University"
+date: "May 8, 2019"
+output:
+  beamer_presentation: default
+  slidy_presentation: default
+  ioslides_presentation: default
+subtitle: PMI Monthly Meeting
+---
+  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(HAI)
+library(ggplot2)
+library(tidyverse)
+
+# ioslides ouptput
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+                      fig.height=5, fig.width=8, fig.align='center')
+
+# beamer output
+# knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+#                       fig.height=3, fig.width=4, fig.align='center')
+
+```
+
+
+## Collaboration with NAU's Pathogen and Microbiome Institute 
+```{r, out.width='600px'}
+knitr::include_graphics("Images/ARD&PMI.png")
+```
+
+
+
+## Cluster Size Distributions
+```{r, 'fig1', warning=FALSE}
+rbind(
+  Oxford %>% mutate(Location = 'Oxford') %>% ungroup(),
+  Flagstaff %>% mutate(Location = 'Flagstaff') %>% ungroup()) %>%
+  mutate( SNP_Threshold = factor(SNP_Threshold, labels = paste( '<=', c(2,4,10) )) ) %>%
+  ggplot(., aes(x=Cluster_Size) ) + 
+  geom_bar() + 
+  labs(x='Cluster Size', y='Number of Individuals') +
+  facet_grid( SNP_Threshold ~ Location, scales = 'free_x' ) +
+  ggtitle('Cluster Sizes')
+```
+
+
+## Defining $\gamma$ = HAI rate from full data
+  - For each cluster, the first time a strain is observed it is considered environmentally acquired.
+  - The second (or third, or fourth, ..) time a strain is observed, it is healthcare acquired.
+
+$$ \gamma = \frac{N - ||\mathcal{I}||}{N} = 1 - \frac{||\mathcal{I}||}{N}$$
+$$ N = \textrm{ Number of Patients }$$
+$$\mathcal{I} = \textrm{ Set of strain identifiers }$$
+$$||\mathcal{I}|| = \textrm{ Actual Number of Clusters/Strains }$$
+
+  - Knowing $||\mathcal{I}||$ is the key to calculating HAI rate!
+
+## Observed Number of Clusters/Strains under Simple Random Sampling
+
+  - Define the following 
+  
+$$\alpha = \textrm{ proportion of the population sampled }$$
+$$ n_i = \textrm{ actual size of the }i \textrm{th cluster}$$
+$$ m_i = \textrm{ observed size of the }i \textrm{th cluster}$$
+
+Notice that 
+
+$$1 \le m_i \le n_i$$ and
+$$\sum n_i = N$$
+$$ \sum m_i = \alpha N$$
+  
+$$ \widehat{HAI}_{naive} = 1 - \frac{||I||}{n} $$
+$$ n = \textrm{ sample size } $$
+
+## Conditional Distribution
+
+$$m_i | n_i \sim \textrm{ZTHyperGeometric}(n_i, \; N-n_i, \;\alpha N) \; \textrm{for}\; i \in I$$
+
+  - Zero Truncated HyperGeometric
+  - Assume approximate independence between observed cluster sizes 
+  - Distribution requires working with hypergeometric terms
+
+$$f(0|n_i) =  \frac{ {n_i \choose 0}{N-n_i \choose \alpha N} }{ {N \choose \alpha N}}$$
+
+Notice that $\alpha$ and $f(0|n_i)$ are inversely related and we could crudely approximate
+
+$$f(0|n_i) \approx 1-\alpha$$
+
+## Critical Expectation
+
+$$E[m_i] = E[ E(m_i|n_i)] = E[ (1-f(0|n_i))^{-1} \;\alpha \;n_i]$$
+
+Utilizing this equation, can derive two different estimators.
+
+1. The plug-in estimator that ignores the expectation, and approximates $\left[ 1-f(0)\right]^{-1} \approx \alpha^{-1}$. This results in $\widehat{n}_i = m_i$. 
+2. Ignoring the expectations, we could utilize the actual hypergeometric function for $f(0|n_i)$ and solve the following equation for $\widehat{n}_i$. This solution needs to be solved via numerical methods because the "chooses" in $f(0|n_i)$.
+
+## Biased Estimator
+
+  - Denoting 
+
+$$\widehat{n} = \sum\widehat{n}_i$$
+$$ I = \textrm{ Set of observed strains }$$
+$$ ||I|| = \textrm{ Observed Number of Clusters/Strains }$$
+$$\widehat{\gamma}^* = \frac{1}{\widehat{n}}\sum_{i\in I} (\widehat{n}_i-1) = \frac{\widehat{n} - ||I||}{\widehat{n}} = 1-\frac{||I||}{\widehat{n}}$$ 
+
+## Does the plug-in Estimator Work?
+```{r, Oxford_Sim1, eval=FALSE}
+Oxford_Simulation <- NULL
+for(sample_frac in c(0.2, 0.4, 0.6, 0.8, 1.0)){
+  for(i in 1:5){
+    Obs_Clusters <- Oxford %>% filter(SNP_Threshold == 2) %>%
+      sample_frac( sample_frac ) %>%
+      pull(Cluster_ID)  
+
+    for( method in c('naive', 'hypergeometric') ){    
+    # for( method in c('naive') ){
+      temp <- calc_HAI(Obs_Clusters, method=method, 
+                       alpha=sample_frac, N=nrow(Oxford), 
+                       bias=FALSE, CI=FALSE)
+      Oxford_Simulation <- rbind(Oxford_Simulation,
+        data.frame(sample_frac = sample_frac, rep = i,  method = method,
+                   Est = temp[1], lwr=temp[2], upr=temp[3]))
+    }
+  }
+}
+usethis::use_data(Oxford_Simulation, overwrite=TRUE)
+```
+```{r}
+Oxford_Simulation %>% 
+  filter(method == 'naive') %>%
+  ggplot(., aes(x=sample_frac, y=Est)) + 
+  geom_point() +
+  geom_hline(yintercept = 0.245, color='red') +
+  scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( title='Oxfordshire Data - Plugin Estimator', x='Sample Fraction', y = 'Observed HAI rate')
+```
+
+
+## Why doesn't this work?
+```{r, Calc_Oxford_Cluster_Sizes, eval=FALSE}
+Observed_Oxford_Cluster_Sizes <- NULL
+for( sample_frac in c(0.1, 0.2, 0.4, 0.6, 0.8, 1.0) ){
+  for( i in 1:1 ){
+    Observed_Oxford_Cluster_Sizes <- 
+      Oxford %>% filter( SNP_Threshold == 2 ) %>%
+      sample_frac(sample_frac) %>% 
+      group_by(Cluster_ID) %>% 
+      mutate(Cluster_Size = n(), rep=i, sample_frac=sample_frac) %>%
+      rbind( Observed_Oxford_Cluster_Sizes )
+  }
+}
+usethis::use_data(Observed_Oxford_Cluster_Sizes, overwrite=TRUE)
+```
+```{r}
+Observed_Oxford_Cluster_Sizes %>%
+  rename(`Sampling Fraction` = sample_frac) %>%
+  ggplot(., aes(x=Cluster_Size, y=..density..)) +
+  geom_histogram(binwidth=1) +
+  facet_wrap(  ~ `Sampling Fraction`, labeller = label_both ) +
+  labs(title='Oxfordshire Data: Observed cluster sizes', y='Proportion of Patients')
+```
+
+
+
+## Bias Correction Procedure
+
+1. Calculate the sample HAI rate.
+2. Repeatedly subsample the sample at the designated $\alpha$ fraction.
+3. For each subsample, calculate the subsample's HAI rate
+4. Look at the average discrepancy and use that to adjust the sample HAI rate estimate.
+5. The adjustments are made on the logit scale to force the resulting rate to remain in the 
+       $[0,1]$ interval.
+       
+
+## Bias Correction Procedure - Math!
+
+By repeatedly sub-sampling at $\alpha$ rate $J$ times and calculating $\widehat{\gamma}^*_j$ for the $j$th sub-sample, 
+
+$$\bar{\delta} = \frac{1}{J}\sum\left[ \textrm{logit}(\widehat\gamma^*) - \textrm{logit}(\widehat\gamma^*_j) \right]$$
+
+$$\widehat{\gamma} = \textrm{ilogit}\left( \textrm{logit}( \widehat{\gamma}^* ) + \bar\delta \right)$$
+
+We performed the bias correction step on the logit scale to ensure the resulting estimator is in $[0,1]$.
+
+
+## Get approximate Confidence Intervals too!
+
+  - Standard deviation of the $\textrm{logit}(\widehat\gamma^*_j)$ values gives a estimated standard error of $\textrm{logit}(\widehat{\gamma})$ value.
+  - An approximate $95%$ confidence interval for $\gamma$ we use is to add/subtract 
+
+$$\textrm{ilogit} \left[ \textrm{logit}(\widehat\gamma) \pm Z_{0.975}*SE(\textrm{logit}(\widehat\gamma))\right]$$
+
+# Results
+
+##  Plugin Results  - Clinical Data
+```{r,  warning=FALSE }
+Clinical_Simulation2 %>% 
+  # filter(method %in% c('naive','hypergeometric') ) %>%
+  filter(method %in% c('naive')) %>%
+  rename(`Sample Fraction` = sample_frac) %>%
+  rename(`Data Set` = data_set) %>%
+  ggplot(., aes(x=rep, y=Obs_HAI_rate)) + 
+  geom_point() +
+  # scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate') +
+  geom_errorbar(aes(ymin=lwr, ymax=upr)) +
+  geom_hline(aes(yintercept = True_HAI_rate), color='red') +
+  facet_grid(`Data Set` ~ `Sample Fraction`, labeller = label_both) +
+  theme(legend.position = 'none')
+```
+
+## Hypergeometric Results - Clinical Data
+```{r,  warning=FALSE }
+Clinical_Simulation2 %>% 
+  # filter(method %in% c('naive','hypergeometric') ) %>%
+  filter(method %in% c('hypergeometric')) %>%
+  rename(`Sample Fraction` = sample_frac) %>%
+  rename(`Data Set` = data_set) %>%
+  ggplot(., aes(x=rep, y=Obs_HAI_rate)) + 
+  geom_point() +
+  # scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate') +
+  geom_errorbar(aes(ymin=lwr, ymax=upr)) +
+  geom_hline(aes(yintercept = True_HAI_rate), color='red') +
+  facet_grid(`Data Set` ~ `Sample Fraction`, labeller = label_both) +
+  theme(legend.position = 'none')
+
+```
+
+
+
+## Results - Simulated Populations
+The Oxfordshire data could be reasonably modeled using a mixture of two distributions to separate the small clusters sizes from the large. We chose to model the small clusters sizes using a truncated Poisson distribution with the zero truncated out. The large cluster sizes were modeled from a logNormal distribution. 
+
+$$n_i \sim \begin{cases}
+ \textrm{TPoisson}(\lambda)       & \textrm{ with probability } 1 - \rho \\
+ \textrm{logNormal}(\mu, \sigma)  &\textrm{ with probability } \rho 
+\end{cases}$$
+
+for $i$ in $\mathcal{I}$.  
+
+
+
+## Simulated Data Populations
+
+```{r, 'fig2'}
+#seed <- runif(1, 0, 1000000) %>% round(); seed;
+set.seed(979238); #set.seed(seed)
+n <- 1000 # Number of patients
+lambda_range = seq(.5, 2, by=.5)
+mixing_range = seq(0, .01, by = .0025)
+
+out <- NULL
+for( mixing_frac in mixing_range ){
+  for( lambda in lambda_range ){
+    Full.Data <- generate_population(n, lambda, mixing_frac) %>%
+      mutate(mixing_frac = mixing_frac, lambda = lambda ) %>%
+      group_by(clusterID) %>% mutate(cluster_size = n())
+    out <- rbind( out, Full.Data )
+  }
+}
+
+P2 <- ggplot(out, aes(x=cluster_size)) +
+  geom_bar() +
+  facet_grid(mixing_frac ~ lambda) +
+  labs(x='Cluster Size', y='Number of Individuals') +
+  ggtitle('Simulated Populations')
+P2
+```
+
+
+
+## Simulated Data Populations: Results
+```{r, 'Graph_of_Generated_Populations2a', warning=FALSE}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('naive') ) %>%
+  ggplot(., aes(x=HAI, y=Est)) + 
+  geom_point() + geom_abline(color='red') +
+  geom_errorbar(aes(ymin=lwr, ymax=upr), alpha=.2) +
+  facet_grid(mix_frac ~ sample_frac) +
+  ggtitle('Bias Corrected Plugin Estimator')
+```
+
+## Simulated Data Populations: Results
+```{r, 'Graph_of_Generated_Populations2b', warning=FALSE}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('hypergeometric') ) %>%
+  ggplot(., aes(x=HAI, y=Est)) + 
+  geom_point() + geom_abline(color='red') +
+  geom_errorbar(aes(ymin=lwr, ymax=upr), alpha=.2) +
+  facet_grid(mix_frac ~ sample_frac) +
+  ggtitle('Bias Corrected Hypergeometric Estimator')
+```
+

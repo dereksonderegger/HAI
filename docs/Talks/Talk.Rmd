@@ -1,0 +1,343 @@
+---
+title: "Assessing incomplete sampling of disease transmission networks"
+author: "Derek Sonderegger, PhD - Northern Arizona University"
+date: "March 13, 2019"
+output:
+  beamer_presentation: default
+  ioslides_presentation: default
+subtitle: Dept. Mathematical Sciences, Montana State University
+---
+  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(HAI)
+library(ggplot2)
+library(tidyverse)
+
+# ioslides ouptput
+# knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+#                       fig.height=5, fig.width=8, fig.align='center')
+
+# beamer output
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE,
+                      fig.height=3, fig.width=4, fig.align='center')
+
+```
+
+
+## Colaborators
+  - Work that I have done with the Pathogen and Microbiome Institute at NAU and we are just a couple months into the project.
+<div class="columns-2">
+```{r, out.width='200px'}
+knitr::include_graphics("Images/PMI_Logo.png")
+```
+  
+  - Dr Paul Keim
+  - Dr Jason Sahl
+</div>
+
+# Background Information
+
+## Two worrisome Healthcare Aquired Infections (HAIs)
+  - MRSA
+    - Methicillin-resistant Staphylococcus aureus
+    - Resistant to many common antibiotics
+  - *C. Diff*
+    - *Clostridioides difficile*
+    - Our disease of interest
+
+## *Clostridioides difficile*
+ - A spore-forming bacteria
+    - Spores can survive for months in the environment
+    - Bacteria die when exposed to oxygen.
+    - Very difficult to work with in the lab.
+  - *C. diff* is widely distributed
+    - Spores are widely found in the environment
+    - People and animals can be asymptomatic carriers
+  - Resistant to many commonly used antibiotics
+    
+## Human Infection 
+  - Causes diarrhea, fever, nausea, and abdominal pain
+  - Spread through fecal contamination 
+  - Additional $4.8 billion each year in health care costs
+    -  290,000 Americans sickened by the bacteria in a hospital or other health care facility each year.
+    -  27,000 people in the U.S. die while infected with *C. diff* annually.
+    
+## Common infection cycle
+  - In a healthy gut biome, *C. diff* can't strongly establish due to bacterial competition.
+  - In patients under a common antibiotic treatment, *C. diff* can flourish.
+  - Prescribed antibiotics for some other reason (e.g. pneumonia)
+    - *C. diff* might already be present in the patient.
+    - Come into contact with *C. diff* via live bacteria or spores from another patient.
+
+## Medicare Implications
+  - Won't reimburse costs for treating infections acquired at a healthcare facility
+  - If the rate of Healthcare Acquired Infections (HAIs) is too high, Medicare will deduct
+    one percent from their OVERALL reimbursements to the facility.
+  - Medicare defines any diagnosis of *C. diff* that occurs 3 days after admission as "healthcare acquired".
+  
+## Goal: Estimate HAI rate 
+  - Individual patients have the genome of their strain of *C. diff* sequenced. 
+  - Group strains into clusters if they differ by at most 2 SNPs.
+    - Use Single-Linkage clustering method: represents evolution along a chain of infections
+    - Within patient variability suggests that maybe this needs to be evaluated.
+
+
+# Data!
+  
+## Oxfordshire Data
+  - Eyre *et al* 2013 describes a study which genotyped nearly all cases of *C. diff* in over three years in Oxfordshire, UK.
+  - Of the 1250 cases that were evaluated, $N=1223$ were successfully genotyped.
+  
+## Oxfordshire Time/Clusters
+```{r, out.width='150px', out.height='200px', echo=FALSE}
+knitr::include_graphics("Images/Oxfordshire_TimeClusters.jpg")
+```
+
+## Oxfordshire Cluster Size Distribution
+```{r}
+Oxford %>% filter(SNP_Threshold == 2) %>%
+  ggplot(., aes(x=Cluster_Size) ) +
+  geom_histogram(binwidth=1) +
+  labs( x = 'Cluster Size', y='Number of Patients')
+```
+
+
+## Defining HAI rate from full data
+  - For each cluster, the first time a strain is observed it is considered environmentally acquired.
+  - The second (or third, or fourth, ..) time a strain is observed, it is healthcare acquired.
+
+$$HAI = \frac{N - ||\mathcal{I}||}{N} = 1 - \frac{||\mathcal{I}||}{N}$$
+$$ N = \textrm{ Number of Patients }$$
+$$\mathcal{I} = \textrm{ Set of strain identifiers }$$
+$$||\mathcal{I}|| = \textrm{ Actual Number of Clusters/Strains }$$
+
+  - Knowing $||\mathcal{I}||$ is the key to calculating HAI rate!
+
+## Observed Number of Clusters/Strains under Simple Random Sampling
+$$ \widehat{HAI}_{naive} = 1 - \frac{||I||}{n} $$
+$$ n = \textrm{ sample size } $$
+$$ I = \textrm{ Set of observed strains }$$
+$$ ||I|| = \textrm{ Observed Number of Clusters/Strains } $$
+
+## Does the Naive Estimator Work?
+```{r}
+Oxford_Simulation %>% filter( SNP_Threshold == 2 ) %>%
+  ggplot(., aes(x=sample_frac, y=Obs_HAI_rate)) + 
+  geom_point() +
+  geom_hline(yintercept = 0.245, color='red') +
+  scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate')
+```
+
+
+## Why doesn't this work?
+```{r, Calc_Oxford_Cluster_Sizes, eval=FALSE}
+Observed_Oxford_Cluster_Sizes <- NULL
+for( sample_frac in c(0.1, 0.2, 0.4, 0.6, 0.8, 1.0) ){
+  for( i in 1:1 ){
+    Observed_Oxford_Cluster_Sizes <- 
+      Oxford %>% filter( SNP_Threshold == 2 ) %>%
+      sample_frac(sample_frac) %>% 
+      group_by(Cluster_ID) %>% 
+      mutate(Cluster_Size = n(), rep=i, sample_frac=sample_frac) %>%
+      rbind( Observed_Oxford_Cluster_Sizes )
+  }
+}
+usethis::use_data(Observed_Oxford_Cluster_Sizes, overwrite=TRUE)
+```
+```{r}
+Observed_Oxford_Cluster_Sizes %>%
+  ggplot(., aes(x=Cluster_Size, y=..density..)) +
+  geom_histogram(binwidth=1) +
+  facet_wrap(  ~ sample_frac ) +
+  labs(y='Proportion of Patients')
+```
+
+
+
+
+
+
+# Better Estimators?
+
+## HyperGeometric?
+  - Let 
+    - $n_i$ be the number of patients with strain $i$.  (This is unknown!)
+    - $m_i$ be the observed number of patients with strain $i$.
+    - $\alpha$ be the sampling percentage.
+
+$$n_i \stackrel{iid}{\sim} \textrm{ZTPoisson}(\lambda) \; \textrm{for} \; i\in \mathcal{I}$$ 
+
+$$m_i | n_i \sim \textrm{ZTHyperGeometric}(n_i, \; N-n_i, \;\alpha N) \; \textrm{for}\; i \in I$$
+
+$$ E(m_i | n_i) = \left(1-f(0|n_i)\right)^{-1} \;\alpha \;n_i$$
+
+where $I$ is a subset of $\mathcal{I}$ and the ZT represents the zero truncated distributions.
+
+## HyperGeometric?
+
+$$f(0|n_i) =  \frac{ {n_i \choose 0}{N-n_i \choose \alpha N} }{ {N \choose \alpha N}}$$
+
+$$E[m_i] = E[ E(m_i|n_i)] = E[ (1-f(0|n_i))^{-1} \;\alpha \;n_i]$$
+
+
+## Can we just ignore the expectation?
+One estimator is to ignore the expectation and solve the following equation for $\widehat{n}_i$.
+$$ m_i =  (1-f(0|\widehat{n}_i))^{-1} \;\alpha \; \widehat{n}_i$$
+which needs to be solved via numerical methods because the "chooses" in $f(0|\widehat{n}_i)$.
+
+$$ \widehat{HAI}_{hyper} = 1 - \frac{||I||}{\widehat{n}} $$
+$$ \widehat{n} = \sum \widehat{n}_i $$
+$$ I = \textrm{ Set of observed strains }$$
+$$ ||I|| = \textrm{ Observed Number of Clusters/Strains } $$
+
+
+## Species Abundance Methods
+  - A well studied problem is estimating the total number of species based on repeated surveys.
+  - Each patient represents a survey, which might produce a new strain, or one that has already been seen.
+  - Several estimators for this problem
+    - Chao, Jacknife1, Jacknife2, Bootstrap
+    - I'll show Chao and Jacknife
+  - Used `vegan::specpool`
+  
+
+## Estimators of Oxford Data
+```{r, Oxford_Sim2, eval=FALSE}
+Oxford_Simulation2 <- NULL
+for(sample_frac in c(0.2, 0.4, 0.6, 0.8, 1.0)){
+  for(i in 1:5){
+    Obs_Clusters <- Oxford %>% filter(SNP_Threshold == 2) %>%
+      sample_frac( sample_frac ) %>%
+      group_by(Cluster_ID) %>% summarize(Cluster_Size = n() ) %>%
+      pull(Cluster_Size)  
+
+    for( method in c('naive', 'hypergeometric') ){    
+      Oxford_Simulation2 <- rbind(Oxford_Simulation2,
+        data.frame(sample_frac = sample_frac, rep = 1,  method = method,
+                   Obs_HAI_rate = calc_HAI(Obs_Clusters, method=method, alpha=sample_frac, N=nrow(Oxford))) )
+    }
+  }
+}
+usethis::use_data(Oxford_Simulation2, overwrite=TRUE)
+```
+```{r, 'Graph_of_Oxford'}
+Oxford_Simulation2 %>% 
+  filter(method %in% c('naive','hypergeometric','chao','jack1') ) %>%
+  ggplot(., aes(x=sample_frac, y=Obs_HAI_rate, color=method)) + 
+  geom_point() +
+  geom_hline(yintercept = 0.245, color='red') +
+  scale_x_continuous(breaks = c( 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0 ) ) +
+  labs( x='Sample Fraction', y = 'Observed HAI rate') +
+  facet_grid(. ~ method) +
+  theme(legend.position = 'none')
+```
+
+
+
+## Simulated Populations
+- The Oxfordshire data could be reasonably modeled using a mixture of two distributions to separate the small clusters sizes from the large. We chose to model the small clusters sizes using a truncated Poisson distribution with the zero truncated out. The large cluster sizes were modeled from a logNormal distribution. 
+
+$$n_i \sim \begin{cases}
+ \textrm{TPoisson}(\lambda)       & \textrm{ with probability } 1 - \alpha \\
+ \textrm{logNormal}(\mu, \sigma)  &\textrm{ with probability } \alpha 
+\end{cases}$$
+
+for $i$ in $\mathcal{I}$.  
+
+## Simulated Populations
+```{r, Example_Simulated_Data}
+seed <- runif(1, 0, 1000000) %>% round();
+set.seed(268769); #set.seed(seed)
+n <- 1000 # Number of patients
+lambda_range = seq(.5, 2, by=.5)
+mixing_range = seq(0, .006, by = .002)
+
+out <- NULL
+for( mixing_frac in mixing_range ){
+  for( lambda in lambda_range ){
+    Full.Data <- generate_population(n, lambda, mixing_frac) %>%
+      mutate(mixing_frac = mixing_frac, lambda = lambda ) %>%
+      group_by(clusterID) %>% mutate(cluster_size = n())
+    out <- rbind( out, Full.Data )
+  }
+}
+
+P2 <- ggplot(out, aes(x=cluster_size)) +
+  geom_bar() +
+  facet_grid(mixing_frac ~ lambda) +
+  labs(x='Cluster Size', y='Number of Individuals') +
+  ggtitle('Simulated Populations')
+P2
+```
+
+
+
+## Simulated Data: Naive method
+```{r, 'Generated_Population_Sim2', eval=FALSE}
+mixing_range = seq(0, .006, by = .002)
+
+Generated_Population_Simulation2 <- NULL
+for( lambda in c(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 1.5, 2.0) ){
+  for( mix_frac in mixing_range ){
+    for(i in 1:5){
+      Pop <- generate_population(1000, lambda=lambda, mix.frac = mix_frac)
+      HAI <- Pop %>% group_by(clusterID) %>% summarize(Cluster_Size = n() ) %>%
+             pull(Cluster_Size) %>% calc_HAI()
+      
+      for(sample_frac in c(0.2, 0.4, 0.6, 0.8, 1.0)){
+        Obs_Clusters <- Pop %>% sample_frac( sample_frac ) %>%
+          group_by(clusterID) %>% summarize(Cluster_Size = n() ) %>%
+          pull(Cluster_Size)  
+        for( method in c('naive','hypergeometric','chao','jack1','jack2','boot') ){
+        # for( method in c('naive','wag','binomial1','binomial2','chao','jack1','jack2','boot') ){    
+          Generated_Population_Simulation2 <- rbind(Generated_Population_Simulation2,
+            data.frame(lambda = lambda, sample_frac = sample_frac, mix_frac = mix_frac, rep = 1,  method = method,
+                       Obs_HAI_rate = calc_HAI(Obs_Clusters, method=method, alpha=sample_frac, N=nrow(Pop) ),
+                       HAI_rate = HAI) )
+        }
+      }
+      
+    }
+  }
+}
+usethis::use_data(Generated_Population_Simulation2, overwrite=TRUE)
+```
+```{r, 'Graph_of_Generated_Populations1'}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('naive') ) %>%
+  ggplot(., aes(x=HAI_rate, y=Obs_HAI_rate)) + 
+  geom_point() + geom_abline(color='red') +
+  facet_grid(mix_frac ~ sample_frac) 
+```
+
+
+## Simulated Data: Chao
+```{r, 'Graph_of_Generated_Populations2'}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('chao') ) %>%
+  ggplot(., aes(x=HAI_rate, y=Obs_HAI_rate)) + 
+  geom_point() + geom_abline(color='red') +
+  facet_grid(mix_frac ~ sample_frac)
+```
+
+## Simulated Data: Hypergeometric
+```{r, 'Graph_of_Generated_Populations3'}
+Generated_Population_Simulation2 %>% 
+  filter(method %in% c('hypergeometric') ) %>%
+  ggplot(., aes(x=HAI_rate, y=Obs_HAI_rate)) + 
+  geom_point() + geom_abline(color='red') +
+  facet_grid(mix_frac ~ sample_frac)
+```
+
+
+## Next Steps
+  - Improve Large Cluster Estimation
+    - Evaluate 
+      $$E\left[ {N-n_i \choose \alpha N} \alpha \;n_i \right]$$ 
+    - Stirling's Approximation?
+    - Needs some assumptions about distribution of $n_i$.
+  - Confidence Interval for HAI
+    - Bootstrap clusters or patients?
+
+

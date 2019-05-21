@@ -1,0 +1,20 @@
+Package: HAI
+Type: Package
+Title: Estimating Hospital Aquired Infection Rates
+Version: 0.1.0
+Author: Derek Sonderegger
+Maintainer: Derek Sonderegger <derek.sonderegger@nau.edu>
+Description: More about what it does (maybe more than one line)
+    Use four spaces when indenting paragraphs within the Description.
+License: What license is it under?
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 3.0.0), tidyverse, ggplot2
+Imports:
+    rstan,
+    truncdist
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+RoxygenNote: 6.1.1
